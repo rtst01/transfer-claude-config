@@ -104,6 +104,19 @@
   .card li.off { color: var(--faint); text-decoration: line-through; }
   .empty { color: var(--faint); font-style: italic; }
 
+  /* ── бэкапы ── */
+  .bk { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+  .bk summary {
+    display: flex; gap: 12px; align-items: center; padding: 10px 14px;
+    cursor: pointer; list-style: none; font: 12.5px var(--mono);
+  }
+  .bk summary::-webkit-details-marker { display: none; }
+  .bk summary::before { content: "▸"; color: var(--faint); transition: transform .15s; }
+  .bk[open] summary::before { transform: rotate(90deg); }
+  .bk-time { color: var(--text); font-weight: 600; }
+  .bk-meta { color: var(--muted); margin-right: auto; }
+  .bk-files { padding: 2px 14px 12px 32px; font: 12px/1.7 var(--mono); color: var(--muted); }
+
   /* ── лог ── */
   #log {
     background: #0a0c10; border: 1px solid var(--border); border-radius: 10px;
@@ -202,6 +215,11 @@
     <button class="btn tiny" onclick="run('doctor')">Doctor</button>
     <button class="btn tiny" onclick="updateFlow()" id="updBtn">Обновить ccsync</button>
   </div>
+</section>
+
+<section id="backupsSec" style="display:none">
+  <div class="sec-label">бэкапы</div>
+  <div id="backupsList"></div>
 </section>
 
 <section>
@@ -363,27 +381,42 @@ async function autosyncFlow() {
   refresh();
 }
 
+// ── бэкапы: список прямо на странице, без блокирующих prompt() ──
 async function backupsFlow() {
+  const sec = $('backupsSec');
+  if (sec.style.display !== 'none') { sec.style.display = 'none'; return; }
   const list = await (await fetch('/api/backups')).json();
-  if (!list.length) { logOut('Бэкапов пока нет — они создаются автоматически при импорте и pull.'); return; }
-  logOut('Бэкапы:\n' + list.map((b, i) => {
-    const added = b.manifest ? b.manifest.added.length : 0;
-    return `  ${i + 1}. ${b.time} — перезаписано: ${b.files.length}, добавлено: ${added}\n` +
-      b.files.map(f => `       ~ ${f}`).join('\n') +
-      (b.manifest && added ? '\n' + b.manifest.added.map(f => `       + ${f}`).join('\n') : '');
-  }).join('\n'));
-  const n = prompt('Номер бэкапа для восстановления (отмена — пусто):');
-  if (!n) return;
-  const b = list[parseInt(n, 10) - 1];
-  if (!b) { alert('Нет такого номера'); return; }
-  if (!confirm(`Откатить конфигурацию к состоянию ${b.time}?`)) return;
+  const el = $('backupsList');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty">Бэкапов пока нет — они создаются автоматически при импорте и pull.</div>';
+  } else {
+    el.innerHTML = list.map((b) => {
+      const added = b.manifest ? b.manifest.added : [];
+      const files = b.files.map((f) => '~ ' + f).concat(added.map((f) => '+ ' + f)).join('<br>');
+      return `<details class="bk">
+        <summary>
+          <span class="bk-time">${b.time}</span>
+          <span class="bk-meta">перезаписано ${b.files.length}${added.length ? ' · добавлено ' + added.length : ''}</span>
+          <button class="btn tiny" onclick="event.preventDefault(); event.stopPropagation(); restoreBackup('${b.name}', '${b.time}')">Откатить</button>
+        </summary>
+        <div class="bk-files">${files}</div>
+      </details>`;
+    }).join('');
+  }
+  sec.style.display = 'block';
+  sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function restoreBackup(name, time) {
+  if (!confirm(`Откатить конфигурацию к состоянию ${time}?\nПерезаписанное вернётся, добавленное импортом — удалится.`)) return;
   busy(true);
   try {
     const r = await (await fetch('/api/restore', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: b.name }),
+      body: JSON.stringify({ name }),
     })).json();
     logOut(r.output || r.error || '');
+    $('backupsSec').style.display = 'none';
   } finally { busy(false); refresh(); }
 }
 
