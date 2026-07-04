@@ -78,14 +78,20 @@
   <button class="primary" onclick="run('push', prompt('Сообщение коммита (пусто — авто):') || undefined)">⇡ Push</button>
   <button onclick="pullFlow()">⇣ Pull</button>
   <button onclick="run('status')">Статус</button>
-  <button onclick="run('diff')">Дифф</button>
+  <button onclick="run('diff')">Дифф с репо</button>
   <button onclick="exportFlow()">⭳ Экспорт</button>
   <button onclick="initFlow()" id="initBtn">Настроить git</button>
   <button onclick="backupsFlow()">⟲ Бэкапы</button>
   <button onclick="autosyncFlow()" id="autoBtn">Авто-синк</button>
 </div>
 
-<div id="drop">Перетащи сюда файл <b>.ccsync</b> для импорта (или кликни)</div>
+<div id="drop">Перетащи сюда файл <b>.ccsync</b> (или кликни) — для диффа или импорта</div>
+<div id="fileBar" class="actions" style="display:none">
+  <span id="fileName" style="align-self:center;color:var(--muted)"></span>
+  <button onclick="diffPending()">Дифф с файлом</button>
+  <button class="primary" onclick="importPending()">Импортировать</button>
+  <button onclick="clearPending()">✕</button>
+</div>
 <input type="file" id="file" accept=".ccsync" hidden>
 
 <div class="grid">
@@ -232,34 +238,67 @@ async function backupsFlow() {
   } finally { busy(false); refresh(); }
 }
 
-async function importFile(file) {
+// ── работа с перетащенным файлом ──
+let pending = null; // {name, buf}
+
+function setPending(file) {
   if (!file) return;
+  file.arrayBuffer().then((buf) => {
+    pending = { name: file.name, buf };
+    $('fileName').textContent = '📦 ' + file.name;
+    $('fileBar').style.display = 'flex';
+    $('drop').style.display = 'none';
+  });
+}
+function clearPending() {
+  pending = null;
+  $('fileBar').style.display = 'none';
+  $('drop').style.display = 'block';
+  $('file').value = '';
+}
+
+/** POST файла с авто-запросом пароля для зашифрованных архивов. */
+async function postFile(url, headers = {}) {
+  let r = await (await fetch(url, { method: 'POST', headers, body: pending.buf })).json();
+  if (r.code !== 0 && /зашифрован|пароль|CCSYNC_PASSPHRASE/i.test(r.output)) {
+    const pass = prompt('Архив зашифрован. Пароль:');
+    if (pass === null) return null;
+    headers['x-passphrase'] = pass;
+    r = await (await fetch(url, { method: 'POST', headers, body: pending.buf })).json();
+  }
+  return { r, headers };
+}
+
+async function diffPending() {
+  if (!pending) return;
   busy(true);
   try {
-    const buf = await file.arrayBuffer();
-    const headers = {};
-    let dry = await (await fetch('/api/import?dry=1', { method: 'POST', headers, body: buf })).json();
-    // зашифрованный архив — спрашиваем пароль и повторяем
-    if (dry.code !== 0 && /зашифрован|пароль|CCSYNC_PASSPHRASE/i.test(dry.output)) {
-      const pass = prompt('Архив зашифрован. Пароль:');
-      if (!pass) { logOut('Импорт отменён'); return; }
-      headers['x-passphrase'] = pass;
-      dry = await (await fetch('/api/import?dry=1', { method: 'POST', headers, body: buf })).json();
-    }
-    logOut('── DRY-RUN ──\n' + dry.output);
-    if (dry.code === 0 && confirm('Применить архив? (бэкап будет сделан автоматически)')) {
-      const r = await (await fetch('/api/import', { method: 'POST', headers, body: buf })).json();
-      logOut(r.output);
+    const res = await postFile('/api/diff');
+    if (res) logOut(`── ДИФФ: ${pending.name} против этой машины ──\n` + res.r.output);
+  } finally { busy(false); }
+}
+
+async function importPending() {
+  if (!pending) return;
+  busy(true);
+  try {
+    const res = await postFile('/api/import?dry=1');
+    if (!res) { logOut('Импорт отменён'); return; }
+    logOut('── DRY-RUN ──\n' + res.r.output);
+    if (res.r.code === 0 && confirm('Применить архив? (бэкап будет сделан автоматически)')) {
+      const r2 = await (await fetch('/api/import', { method: 'POST', headers: res.headers, body: pending.buf })).json();
+      logOut(r2.output);
+      clearPending();
     }
   } finally { busy(false); refresh(); }
 }
 
 const drop = $('drop');
 drop.onclick = () => $('file').click();
-$('file').onchange = (e) => importFile(e.target.files[0]);
+$('file').onchange = (e) => setPending(e.target.files[0]);
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
-drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); importFile(e.dataTransfer.files[0]); };
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); setPending(e.dataTransfer.files[0]); };
 
 refresh();
 </script>
