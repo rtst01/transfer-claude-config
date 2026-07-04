@@ -117,6 +117,27 @@
   .bk-meta { color: var(--muted); margin-right: auto; }
   .bk-files { padding: 2px 14px 12px 32px; font: 12px/1.7 var(--mono); color: var(--muted); }
 
+  /* ── диалоги (замена нативных prompt/confirm) ── */
+  .overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgb(8 10 14 / .62); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .dialog {
+    width: min(460px, 100%); background: var(--card2);
+    border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px;
+    box-shadow: 0 18px 50px rgb(0 0 0 / .5);
+  }
+  .dlg-title { font: 11px var(--mono); color: var(--faint); letter-spacing: .1em; margin-bottom: 8px; }
+  .dlg-title::before { content: "// "; }
+  .dlg-text { color: var(--muted); font-size: 13px; line-height: 1.55; margin-bottom: 14px; white-space: pre-wrap; }
+  .dlg-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; color: var(--text); font: 13px var(--mono); margin-bottom: 16px;
+  }
+  .dlg-input:focus { outline: none; border-color: var(--in); }
+  .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
   /* ── лог ── */
   #log {
     background: #0a0c10; border: 1px solid var(--border); border-radius: 10px;
@@ -157,7 +178,7 @@
 
   <div class="lanes">
     <div class="lane out">
-      <button class="btn push" onclick="run('push', prompt('Сообщение коммита (пусто — авто):') || undefined)">
+      <button class="btn push" onclick="pushFlow()">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 13V3M4 7l4-4 4 4"/></svg>
         Push
       </button>
@@ -242,6 +263,69 @@
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
 
+/* ── диалоги: единый стиль вместо нативных prompt/confirm ──
+   dialog({title, text, input?, type?, placeholder?, buttons:[{label,value,kind?}]})
+   → Promise<value>; кнопка со value '__input__' возвращает содержимое поля.
+   Esc — отмена (null), Enter — первичная кнопка. */
+function dialog(opts) {
+  return new Promise((resolve) => {
+    const prevFocus = document.activeElement;
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `<div class="dialog" role="dialog" aria-modal="true">
+      <div class="dlg-title"></div>
+      <div class="dlg-text"></div>
+      ${opts.input ? '<input class="dlg-input">' : ''}
+      <div class="dlg-actions"></div>
+    </div>`;
+    ov.querySelector('.dlg-title').textContent = opts.title;
+    ov.querySelector('.dlg-text').textContent = opts.text || '';
+    const inp = ov.querySelector('.dlg-input');
+    if (inp) {
+      inp.type = opts.type || 'text';
+      inp.placeholder = opts.placeholder || '';
+      inp.value = opts.value || '';
+    }
+    const done = (v) => {
+      document.removeEventListener('keydown', onKey, true);
+      ov.remove();
+      if (prevFocus && prevFocus.focus) prevFocus.focus();
+      resolve(v);
+    };
+    const val = (b) => (b.value === '__input__' ? (inp ? inp.value : '') : b.value);
+    const actions = ov.querySelector('.dlg-actions');
+    const primary = opts.buttons.find((b) => b.kind === 'primary') || opts.buttons[0];
+    for (const b of opts.buttons) {
+      const el = document.createElement('button');
+      el.className = 'btn tiny' + (b.kind === 'primary' ? ' push' : b.kind === 'ghost' ? ' ghost' : '');
+      el.textContent = b.label;
+      el.onclick = () => done(val(b));
+      actions.appendChild(el);
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+      if (e.key === 'Enter' && (!e.target.matches('button') || e.target.closest('.dialog') === null)) {
+        e.preventDefault();
+        done(val(primary));
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    ov.onmousedown = (e) => { if (e.target === ov) done(null); };
+    document.body.appendChild(ov);
+    (inp || actions.querySelector('button')).focus();
+  });
+}
+const dlgConfirm = async (title, text, okLabel = 'Продолжить') =>
+  (await dialog({ title, text, buttons: [
+    { label: okLabel, value: true, kind: 'primary' },
+    { label: 'Отмена', value: null, kind: 'ghost' },
+  ] })) === true;
+const dlgPrompt = (title, text, o = {}) =>
+  dialog({ title, text, input: true, ...o, buttons: [
+    { label: o.okLabel || 'OK', value: '__input__', kind: 'primary' },
+    { label: 'Отмена', value: null, kind: 'ghost' },
+  ] });
+
 function logOut(text) {
   logEl.textContent = text.trim() + '\n';
   logEl.scrollTop = 0;
@@ -298,26 +382,40 @@ async function run(cmd, message) {
   } finally { busy(false); refresh(); }
 }
 
+async function pushFlow() {
+  const msg = await dlgPrompt('push', 'Сообщение коммита. Пусто — автоматическое («sync from …»).', {
+    placeholder: 'sync from rtst-2', okLabel: 'Push',
+  });
+  if (msg === null) return;
+  run('push', msg.trim() || undefined);
+}
+
 async function pullFlow() {
   busy(true);
+  let dry;
   try {
-    const dry = await (await fetch('/api/run', {
+    dry = await (await fetch('/api/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cmd: 'pull-dry' }),
     })).json();
     logOut('── DRY-RUN ──\n' + dry.output);
-    if (dry.code === 0 && confirm('Применить эту конфигурацию? (бэкап будет сделан автоматически)')) {
-      const r = await (await fetch('/api/run', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cmd: 'pull' }),
-      })).json();
-      logOut(r.output);
-    }
+  } finally { busy(false); }
+  if (dry.code !== 0) { refresh(); return; }
+  if (!(await dlgConfirm('pull', 'Применить эту конфигурацию? План — в логе ниже.\nПеред применением будет создан бэкап.', 'Применить'))) return;
+  busy(true);
+  try {
+    const r = await (await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'pull' }),
+    })).json();
+    logOut(r.output);
   } finally { busy(false); refresh(); }
 }
 
 async function initFlow() {
-  const url = prompt('URL приватного git-репозитория (пусто — локальный без remote):');
+  const url = await dlgPrompt('настройка git', 'URL приватного репозитория для синхронизации.\nПусто — локальный репозиторий без remote.', {
+    placeholder: 'git@github.com:you/claude-config.git', okLabel: 'Настроить',
+  });
   if (url === null) return;
   busy(true);
   try {
@@ -330,13 +428,12 @@ async function initFlow() {
 }
 
 async function exportFlow() {
-  const enc = confirm('Зашифровать архив паролем? (OK — да, Отмена — без шифрования)');
-  const headers = {};
-  if (enc) {
-    const pass = prompt('Пароль архива:');
-    if (!pass) return;
-    headers['x-passphrase'] = pass;
-  }
+  const pass = await dlgPrompt('экспорт архива', 'Пароль для шифрования (AES-256).\nПусто — скачать без шифрования.', {
+    type: 'password', okLabel: 'Скачать',
+  });
+  if (pass === null) return;
+  const enc = pass.length > 0;
+  const headers = enc ? { 'x-passphrase': pass } : {};
   busy(true);
   try {
     const resp = await fetch('/api/export', { headers });
@@ -353,7 +450,7 @@ async function exportFlow() {
 }
 
 async function updateFlow() {
-  if (!confirm('Проверить и установить обновление ccsync?')) return;
+  if (!(await dlgConfirm('обновление', 'Проверить последний релиз на GitHub и установить его?', 'Обновить'))) return;
   busy(true);
   try {
     const r = await (await fetch('/api/run', {
@@ -367,18 +464,25 @@ async function updateFlow() {
 }
 
 async function autosyncFlow() {
-  const st = await (await fetch('/api/run', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd: 'autosync-status' }),
-  })).json();
-  logOut(st.output);
-  const on = confirm('Включить авто-синхронизацию? (OK — включить, Отмена — выключить)');
-  const r = await (await fetch('/api/run', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd: on ? 'autosync-on' : 'autosync-off' }),
-  })).json();
-  logOut(r.output);
-  refresh();
+  const cur = $('autoBtn').textContent.includes('вкл');
+  const choice = await dialog({
+    title: 'авто-синхронизация',
+    text: `Сейчас: ${cur ? 'включена' : 'выключена'}.\n\nПри включении Claude Code будет сам делать pull при старте сессии и push при завершении. Журнал: ~/.claude/ccsync.log`,
+    buttons: [
+      cur ? { label: 'Выключить', value: 'off', kind: 'primary' } : { label: 'Включить', value: 'on', kind: 'primary' },
+      cur ? { label: 'Включить заново', value: 'on' } : { label: 'Выключить', value: 'off' },
+      { label: 'Отмена', value: null, kind: 'ghost' },
+    ],
+  });
+  if (!choice) return;
+  busy(true);
+  try {
+    const r = await (await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'autosync-' + choice }),
+    })).json();
+    logOut(r.output);
+  } finally { busy(false); refresh(); }
 }
 
 // ── бэкапы: список прямо на странице, без блокирующих prompt() ──
@@ -408,7 +512,7 @@ async function backupsFlow() {
 }
 
 async function restoreBackup(name, time) {
-  if (!confirm(`Откатить конфигурацию к состоянию ${time}?\nПерезаписанное вернётся, добавленное импортом — удалится.`)) return;
+  if (!(await dlgConfirm('откат', `Откатить конфигурацию к состоянию ${time}?\nПерезаписанное вернётся, добавленное импортом — удалится.`, 'Откатить'))) return;
   busy(true);
   try {
     const r = await (await fetch('/api/restore', {
@@ -443,7 +547,9 @@ function clearPending() {
 async function postFile(url, headers = {}) {
   let r = await (await fetch(url, { method: 'POST', headers, body: pending.buf })).json();
   if (r.code !== 0 && /зашифрован|пароль|CCSYNC_PASSPHRASE/i.test(r.output)) {
-    const pass = prompt('Архив зашифрован. Пароль:');
+    const pass = await dlgPrompt('зашифрованный архив', pending.name + ' зашифрован — нужен пароль.', {
+      type: 'password', okLabel: 'Расшифровать',
+    });
     if (pass === null) return null;
     headers['x-passphrase'] = pass;
     r = await (await fetch(url, { method: 'POST', headers, body: pending.buf })).json();
@@ -467,7 +573,8 @@ async function importPending() {
     const res = await postFile('/api/import?dry=1');
     if (!res) { logOut('Импорт отменён'); return; }
     logOut('── DRY-RUN ──\n' + res.r.output);
-    if (res.r.code === 0 && confirm('Применить архив? (бэкап будет сделан автоматически)')) {
+    if (res.r.code === 0 &&
+        (await dlgConfirm('импорт', `Применить ${pending.name}? План — в логе ниже.\nПеред применением будет создан бэкап.`, 'Применить'))) {
       const r2 = await (await fetch('/api/import', { method: 'POST', headers: res.headers, body: pending.buf })).json();
       logOut(r2.output);
       clearPending();
