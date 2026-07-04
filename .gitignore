@@ -1,0 +1,13 @@
+# локальное окружение Claude Code этого проекта
+.claude/
+
+# node
+node_modules/
+npm-debug.log*
+
+# архивы конфигурации — никогда не коммитим (могут содержать ключи)
+*.ccsync
+
+# ОС
+.DS_Store
+Thumbs.db

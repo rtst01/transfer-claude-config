@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ccsync — Claude Code Sync</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #262d38; --text: #e6edf3;
+    --muted: #8b949e; --accent: #d97757; --green: #3fb950; --yellow: #d29922;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+    max-width: 880px; margin: 0 auto; padding: 24px 16px 48px;
+  }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 22px; letter-spacing: -0.5px; }
+  h1 b { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .pill {
+    margin-left: auto; padding: 3px 12px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .pill.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .pill.warn { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 40%, transparent); }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  button {
+    background: var(--card); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 16px; border-radius: 8px; font: inherit; cursor: pointer; transition: .15s;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .45; cursor: wait; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+  .card h3 span { color: var(--accent); }
+  .card ul { list-style: none; font-size: 13px; }
+  .card li { padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card li.off { color: var(--muted); text-decoration: line-through; opacity: .6; }
+  .empty { color: var(--muted); font-style: italic; font-size: 13px; }
+
+  #drop {
+    border: 2px dashed var(--border); border-radius: 10px; padding: 18px; text-align: center;
+    color: var(--muted); margin-bottom: 16px; transition: .15s; cursor: pointer;
+  }
+  #drop.over { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+
+  #log {
+    background: #0a0d12; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; font: 12.5px/1.6 ui-monospace, "SF Mono", Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word; min-height: 90px; max-height: 380px; overflow-y: auto;
+    color: #c9d1d9;
+  }
+  #log:empty::before { content: "Лог операций появится здесь…"; color: var(--muted); font-style: italic; }
+  .row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .row input {
+    flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 12px; font: inherit;
+  }
+  .row input:focus { outline: none; border-color: var(--accent); }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 20px 0 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><b>cc</b>sync</h1>
+  <span class="meta" id="machine">…</span>
+  <span class="pill" id="repoPill">…</span>
+</header>
+
+<div class="actions">
+  <button class="primary" onclick="run('push', prompt('Сообщение коммита (пусто — авто):') || undefined)">⇡ Push</button>
+  <button onclick="pullFlow()">⇣ Pull</button>
+  <button onclick="run('status')">Статус</button>
+  <button onclick="location.href='/api/export'">⭳ Экспорт архива</button>
+  <button onclick="initFlow()" id="initBtn">Настроить git</button>
+  <button onclick="backupsFlow()">⟲ Бэкапы</button>
+</div>
+
+<div id="drop">Перетащи сюда файл <b>.ccsync</b> для импорта (или кликни)</div>
+<input type="file" id="file" accept=".ccsync" hidden>
+
+<div class="grid">
+  <div class="card"><h3>Агенты <span id="nAgents"></span></h3><ul id="agents"></ul></div>
+  <div class="card"><h3>Скиллы <span id="nSkills"></span></h3><ul id="skills"></ul></div>
+  <div class="card"><h3>Команды <span id="nCommands"></span></h3><ul id="commands"></ul></div>
+  <div class="card"><h3>MCP-серверы <span id="nMcp"></span></h3><ul id="mcp"></ul></div>
+  <div class="card"><h3>Файлы</h3><ul id="files"></ul></div>
+</div>
+
+<section><h2>Лог</h2></section>
+<div id="log"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+
+function logOut(text) {
+  logEl.textContent = text.trim() + '\n';
+  logEl.scrollTop = 0;
+}
+function busy(on) { document.querySelectorAll('button').forEach(b => b.disabled = on); }
+
+async function refresh() {
+  const s = await (await fetch('/api/state')).json();
+  $('machine').textContent = `${s.hostname} · ${s.platform} · ${s.home}`;
+  const pill = $('repoPill');
+  if (s.repo) {
+    pill.className = 'pill ok';
+    pill.textContent = s.repo.remote ? s.repo.remote.replace(/^.*[:/]([^/]+\/[^/]+?)(\.git)?$/, '$1') : 'локальный репо';
+    pill.title = (s.repo.lastCommit || '') + '\n' + s.repo.dir;
+    $('initBtn').textContent = 'Git: настроен';
+  } else {
+    pill.className = 'pill warn';
+    pill.textContent = 'git не настроен';
+  }
+  const fill = (id, arr) => {
+    $(id).innerHTML = arr.length ? arr.map(a => `<li>· ${a}</li>`).join('') : '<li class="empty">пусто</li>';
+    $('n' + id[0].toUpperCase() + id.slice(1)).textContent = arr.length ? `· ${arr.length}` : '';
+  };
+  fill('agents', s.agents); fill('skills', s.skills); fill('commands', s.commands); fill('mcp', s.mcp);
+  $('files').innerHTML = Object.entries(s.files)
+    .map(([f, ok]) => `<li class="${ok ? '' : 'off'}">${ok ? '✓' : '—'} ${f}</li>`).join('');
+}
+
+async function run(cmd, message) {
+  busy(true);
+  try {
+    const r = await (await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd, message }),
+    })).json();
+    logOut(r.output || r.error || '');
+  } finally { busy(false); refresh(); }
+}
+
+async function pullFlow() {
+  busy(true);
+  try {
+    const dry = await (await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'pull-dry' }),
+    })).json();
+    logOut('── DRY-RUN ──\n' + dry.output);
+    if (dry.code === 0 && confirm('Применить эту конфигурацию? (бэкап будет сделан автоматически)')) {
+      const r = await (await fetch('/api/run', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cmd: 'pull' }),
+      })).json();
+      logOut(r.output);
+    }
+  } finally { busy(false); refresh(); }
+}
+
+async function initFlow() {
+  const url = prompt('URL приватного git-репозитория (пусто — локальный без remote):');
+  if (url === null) return;
+  busy(true);
+  try {
+    const r = await (await fetch('/api/init', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url.trim() || undefined }),
+    })).json();
+    logOut(r.output || '');
+  } finally { busy(false); refresh(); }
+}
+
+async function backupsFlow() {
+  const list = await (await fetch('/api/backups')).json();
+  if (!list.length) { logOut('Бэкапов пока нет — они создаются автоматически при import/pull.'); return; }
+  logOut('Бэкапы:\n' + list.map((b, i) => `  ${i + 1}. ${b.time} — ${b.files.length} файл(ов)\n` +
+    b.files.map(f => `       ${f}`).join('\n')).join('\n'));
+  const n = prompt('Номер бэкапа для восстановления (отмена — пусто):');
+  if (!n) return;
+  const b = list[parseInt(n, 10) - 1];
+  if (!b) { alert('Нет такого номера'); return; }
+  if (!confirm(`Откатить конфигурацию к состоянию ${b.time}?\nБудут восстановлены: ${b.files.join(', ')}`)) return;
+  busy(true);
+  try {
+    const r = await (await fetch('/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: b.name }),
+    })).json();
+    logOut(r.output || r.error || '');
+  } finally { busy(false); refresh(); }
+}
+
+async function importFile(file) {
+  if (!file) return;
+  busy(true);
+  try {
+    const buf = await file.arrayBuffer();
+    const dry = await (await fetch('/api/import?dry=1', { method: 'POST', body: buf })).json();
+    logOut('── DRY-RUN ──\n' + dry.output);
+    if (dry.code === 0 && confirm('Применить архив? (бэкап будет сделан автоматически)')) {
+      const r = await (await fetch('/api/import', { method: 'POST', body: buf })).json();
+      logOut(r.output);
+    }
+  } finally { busy(false); refresh(); }
+}
+
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+$('file').onchange = (e) => importFile(e.target.files[0]);
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); importFile(e.dataTransfer.files[0]); };
+
+refresh();
+</script>
+</body>
+</html>

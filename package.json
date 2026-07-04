@@ -1,0 +1,28 @@
+{
+  "name": "ccsync",
+  "version": "0.1.0",
+  "description": "Синхронизация настроек Claude Code (агенты, скиллы, команды, settings) между машинами — Windows/macOS/Linux",
+  "bin": {
+    "ccsync": "bin/ccsync.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rtst01/transfer-claude-config.git"
+  },
+  "keywords": [
+    "claude-code",
+    "sync",
+    "dotfiles",
+    "config"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "preferGlobal": true,
+  "license": "MIT"
+}
