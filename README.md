@@ -22,7 +22,29 @@ keybindings, statusline и список MCP-серверов.
 
 ## Установка
 
-Одна и та же команда на **Windows, macOS и Linux** (нужен Node.js ≥ 18):
+### Вариант 1: готовый бинарь (Node.js не нужен)
+
+Скачай под свою систему со страницы
+[Releases](https://github.com/rtst01/transfer-claude-config/releases):
+`ccsync-windows-x64.exe`, `ccsync-macos-arm64`, `ccsync-macos-x64`,
+`ccsync-linux-x64` (+ SHA256SUMS.txt для проверки).
+
+```bash
+# macOS / Linux: положить в PATH под именем ccsync
+chmod +x ccsync-macos-arm64
+sudo mv ccsync-macos-arm64 /usr/local/bin/ccsync
+# macOS может заблокировать неподписанный бинарь при первом запуске:
+xattr -d com.apple.quarantine /usr/local/bin/ccsync
+```
+
+```powershell
+# Windows: переименовать и положить в папку из PATH
+ren ccsync-windows-x64.exe ccsync.exe
+```
+
+Имя `ccsync` в PATH важно для авто-синхронизации — хуки вызывают именно его.
+
+### Вариант 2: через npm (нужен Node.js ≥ 18)
 
 ```bash
 npm install -g git+https://github.com/rtst01/transfer-claude-config.git
@@ -171,7 +193,12 @@ lib/tui.js       интерактивное меню в терминале
 lib/webui.js     локальный http-сервер веб-панели (whitelist команд, 127.0.0.1)
 lib/panel.html   страница веб-панели
 test/e2e.js      сквозной тест (npm test), гоняется в CI на win/mac/linux
+scripts/build-sea.js  сборка standalone-бинаря (Node SEA), запускается в Release CI
 ```
+
+Релиз бинарей: `git tag v0.x.0 && git push --tags` — workflow Release соберёт
+бинари на 4 раннерах (linux-x64, macos-x64, macos-arm64, windows-x64),
+прогонит тесты и приложит их к GitHub Release с чек-суммами.
 
 Служебный конфиг инструмента: `~/.claude/ccsync.json` (не синхронизируется).
 Переменная `CCSYNC_HOME` переопределяет домашнюю директорию (для тестов).

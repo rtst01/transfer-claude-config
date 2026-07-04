@@ -1,6 +1,6 @@
 {
   "name": "ccsync",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Синхронизация настроек Claude Code (агенты, скиллы, команды, settings) между машинами — Windows/macOS/Linux",
   "bin": {
     "ccsync": "bin/ccsync.js"
