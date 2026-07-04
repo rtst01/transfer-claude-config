@@ -6,107 +6,219 @@
 <title>ccsync — Claude Code Sync</title>
 <style>
   :root {
-    --bg: #0d1117; --card: #161b22; --border: #262d38; --text: #e6edf3;
-    --muted: #8b949e; --accent: #d97757; --green: #3fb950; --yellow: #d29922;
+    --bg: #0f1115; --card: #171a21; --card2: #1c2029; --border: #262b36;
+    --text: #e8eaf0; --muted: #8b93a3; --faint: #565e6e;
+    --out: #d97757;        /* исходящее: push, экспорт */
+    --in: #7aa2f7;         /* входящее: pull, импорт */
+    --ok: #4ac26b; --warn: #d29922;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
   }
   * { box-sizing: border-box; margin: 0; }
   body {
     background: var(--bg); color: var(--text);
     font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
-    max-width: 880px; margin: 0 auto; padding: 24px 16px 48px;
+    max-width: 920px; margin: 0 auto; padding: 28px 20px 56px;
   }
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  h1 { font-size: 22px; letter-spacing: -0.5px; }
-  h1 b { color: var(--accent); }
-  .meta { color: var(--muted); font-size: 13px; }
-  .pill {
-    margin-left: auto; padding: 3px 12px; border-radius: 999px; font-size: 12px;
-    border: 1px solid var(--border); color: var(--muted);
-  }
-  .pill.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
-  .pill.warn { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 40%, transparent); }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible, .drop:focus-visible { outline: 2px solid var(--in); outline-offset: 2px; }
+  svg { flex: none; }
 
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-  button {
+  /* ── шапка ── */
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 26px; flex-wrap: wrap; }
+  .wordmark { font: 700 21px/1 var(--mono); letter-spacing: -0.5px; }
+  .wordmark b { color: var(--out); font-weight: 700; }
+  .wordmark span { color: var(--faint); font-weight: 400; font-size: 13px; margin-left: 8px; }
+  .machine {
+    font: 12px var(--mono); color: var(--muted); margin-left: auto;
+    max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+  }
+
+  /* ── рельса синхронизации ── */
+  .rail { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: stretch; }
+  .node {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; min-height: 118px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .node .eyebrow { font: 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+  .node .title { font: 600 15px/1.3 var(--mono); word-break: break-all; }
+  .node .sub { font: 12px var(--mono); color: var(--muted); }
+  .node .sub.ok { color: var(--ok); }
+  .node .sub.warn { color: var(--warn); }
+  .counts { display: flex; gap: 14px; margin-top: auto; padding-top: 8px; font: 12px var(--mono); color: var(--muted); flex-wrap: wrap; }
+  .counts b { color: var(--text); font-weight: 600; }
+
+  .lanes { display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 0 18px; }
+  .lane { display: flex; align-items: center; gap: 10px; }
+  .lane .wire { width: 34px; border-top: 1px dashed var(--border); position: relative; }
+  .lane .wire::after {
+    content: ""; position: absolute; top: -4px; border: 4px solid transparent;
+  }
+  .lane.out .wire::after { right: -2px; border-left-color: var(--out); }
+  .lane.in  .wire::after { left: -2px; border-right-color: var(--in); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
     background: var(--card); color: var(--text); border: 1px solid var(--border);
-    padding: 8px 16px; border-radius: 8px; font: inherit; cursor: pointer; transition: .15s;
+    padding: 8px 14px; border-radius: 9px; transition: border-color .15s, background .15s;
+    white-space: nowrap;
   }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  button.primary:hover { filter: brightness(1.1); }
-  button:disabled { opacity: .45; cursor: wait; }
+  .btn:hover { border-color: var(--muted); }
+  .btn:disabled { opacity: .45; cursor: wait; }
+  .btn.push { background: var(--out); border-color: var(--out); color: #16100c; font-weight: 650; }
+  .btn.push:hover { filter: brightness(1.08); }
+  .btn.pull { color: var(--in); border-color: color-mix(in srgb, var(--in) 45%, transparent); }
+  .btn.pull:hover { border-color: var(--in); }
+  .btn.ghost { background: transparent; }
+  .btn.tiny { padding: 5px 10px; font-size: 12.5px; border-radius: 7px; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-  .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
-  .card h3 span { color: var(--accent); }
-  .card ul { list-style: none; font-size: 13px; }
-  .card li { padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card li.off { color: var(--muted); text-decoration: line-through; opacity: .6; }
-  .empty { color: var(--muted); font-style: italic; font-size: 13px; }
+  .rail-actions { display: flex; gap: 8px; margin: 12px 0 0; flex-wrap: wrap; }
 
-  #drop {
-    border: 2px dashed var(--border); border-radius: 10px; padding: 18px; text-align: center;
-    color: var(--muted); margin-bottom: 16px; transition: .15s; cursor: pointer;
+  /* ── секции ── */
+  section { margin-top: 30px; }
+  .sec-label { font: 11px var(--mono); color: var(--faint); letter-spacing: .1em; margin-bottom: 10px; }
+  .sec-label::before { content: "// "; }
+
+  .transfer { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: stretch; }
+  .drop {
+    border: 1.5px dashed var(--border); border-radius: 10px; padding: 13px 18px;
+    color: var(--muted); font-size: 13px; cursor: pointer; transition: .15s;
+    display: flex; align-items: center; gap: 10px;
   }
-  #drop.over { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .drop:hover, .drop.over { border-color: var(--in); color: var(--in); background: color-mix(in srgb, var(--in) 5%, transparent); }
+  .filebar {
+    display: none; grid-column: 2; gap: 8px; align-items: center;
+    border: 1px solid color-mix(in srgb, var(--in) 40%, transparent); border-radius: 10px; padding: 8px 8px 8px 14px;
+  }
+  .filebar .fname { font: 12.5px var(--mono); color: var(--in); margin-right: auto; word-break: break-all; }
 
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── конфигурация ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 10px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .card h3 { font: 10.5px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--faint); margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .card h3 span { color: var(--out); }
+  .card ul { list-style: none; font: 12.5px var(--mono); padding: 0; }
+  .card li { padding: 1.5px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+  .card li.on { color: var(--text); }
+  .card li.off { color: var(--faint); text-decoration: line-through; }
+  .empty { color: var(--faint); font-style: italic; }
+
+  /* ── лог ── */
   #log {
-    background: #0a0d12; border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 16px; font: 12.5px/1.6 ui-monospace, "SF Mono", Consolas, monospace;
-    white-space: pre-wrap; word-break: break-word; min-height: 90px; max-height: 380px; overflow-y: auto;
-    color: #c9d1d9;
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; font: 12.5px/1.65 var(--mono);
+    white-space: pre-wrap; word-break: break-word; min-height: 84px; max-height: 400px; overflow-y: auto;
+    color: #c6cbd6;
   }
-  #log:empty::before { content: "Лог операций появится здесь…"; color: var(--muted); font-style: italic; }
-  .row { display: flex; gap: 8px; margin-bottom: 16px; }
-  .row input {
-    flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text); padding: 8px 12px; font: inherit;
+  #log:empty::before { content: "лог операций появится здесь"; color: var(--faint); font-style: italic; }
+
+  @media (max-width: 720px) {
+    .rail { grid-template-columns: 1fr; }
+    .lanes { flex-direction: row; justify-content: center; padding: 12px 0; }
+    .lane .wire { width: 22px; }
+    .transfer { grid-template-columns: 1fr; }
+    .filebar { grid-column: 1; }
+    .machine { margin-left: 0; width: 100%; }
   }
-  .row input:focus { outline: none; border-color: var(--accent); }
-  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 20px 0 10px; }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
+
 <header>
-  <h1><b>cc</b>sync</h1>
-  <span class="meta" id="machine">…</span>
-  <span class="pill" id="repoPill">…</span>
+  <div class="wordmark"><b>cc</b>sync<span id="ver"></span></div>
+  <div class="machine" id="machine">…</div>
 </header>
 
-<div class="actions">
-  <button class="primary" onclick="run('push', prompt('Сообщение коммита (пусто — авто):') || undefined)">⇡ Push</button>
-  <button onclick="pullFlow()">⇣ Pull</button>
-  <button onclick="run('status')">Статус</button>
-  <button onclick="run('diff')">Дифф с репо</button>
-  <button onclick="exportFlow()">⭳ Экспорт</button>
-  <button onclick="initFlow()" id="initBtn">Настроить git</button>
-  <button onclick="backupsFlow()">⟲ Бэкапы</button>
-  <button onclick="autosyncFlow()" id="autoBtn">Авто-синк</button>
-  <button onclick="run('log')">История</button>
-  <button onclick="run('doctor')">Doctor</button>
-  <button onclick="updateFlow()" id="updBtn">Обновить</button>
+<!-- рельса: эта машина ⇄ репозиторий -->
+<div class="rail">
+  <div class="node">
+    <div class="eyebrow">эта машина</div>
+    <div class="title" id="hostTitle">…</div>
+    <div class="sub" id="hostSub"></div>
+    <div class="counts" id="counts"></div>
+  </div>
+
+  <div class="lanes">
+    <div class="lane out">
+      <button class="btn push" onclick="run('push', prompt('Сообщение коммита (пусто — авто):') || undefined)">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 13V3M4 7l4-4 4 4"/></svg>
+        Push
+      </button>
+      <div class="wire"></div>
+    </div>
+    <div class="lane in">
+      <div class="wire"></div>
+      <button class="btn pull" onclick="pullFlow()">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M4 9l4 4 4-4"/></svg>
+        Pull
+      </button>
+    </div>
+  </div>
+
+  <div class="node">
+    <div class="eyebrow">репозиторий</div>
+    <div class="title" id="repoTitle">…</div>
+    <div class="sub" id="repoSub"></div>
+    <div class="counts" id="repoActions"></div>
+  </div>
 </div>
 
-<div id="drop">Перетащи сюда файл <b>.ccsync</b> (или кликни) — для диффа или импорта</div>
-<div id="fileBar" class="actions" style="display:none">
-  <span id="fileName" style="align-self:center;color:var(--muted)"></span>
-  <button onclick="diffPending()">Дифф с файлом</button>
-  <button class="primary" onclick="importPending()">Импортировать</button>
-  <button onclick="clearPending()">✕</button>
-</div>
-<input type="file" id="file" accept=".ccsync" hidden>
-
-<div class="grid">
-  <div class="card"><h3>Агенты <span id="nAgents"></span></h3><ul id="agents"></ul></div>
-  <div class="card"><h3>Скиллы <span id="nSkills"></span></h3><ul id="skills"></ul></div>
-  <div class="card"><h3>Команды <span id="nCommands"></span></h3><ul id="commands"></ul></div>
-  <div class="card"><h3>MCP-серверы <span id="nMcp"></span></h3><ul id="mcp"></ul></div>
-  <div class="card"><h3>Файлы</h3><ul id="files"></ul></div>
+<div class="rail-actions">
+  <button class="btn tiny ghost" onclick="run('status')">Статус</button>
+  <button class="btn tiny ghost" onclick="run('diff')">Дифф с репо</button>
+  <button class="btn tiny ghost" onclick="run('log')">История</button>
 </div>
 
-<section><h2>Лог</h2></section>
-<div id="log"></div>
+<section>
+  <div class="sec-label">перенос архивом</div>
+  <div class="transfer">
+    <button class="btn" onclick="exportFlow()" style="color:var(--out)">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 13.5h11"/></svg>
+      Экспорт
+    </button>
+    <div class="drop" id="drop" tabindex="0">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4.5" width="12" height="9" rx="1.5"/><path d="M2 7.5h12M6.5 2.5h3"/></svg>
+      перетащи файл .ccsync — для диффа или импорта
+    </div>
+    <div class="filebar" id="fileBar">
+      <span class="fname" id="fileName"></span>
+      <button class="btn tiny" onclick="diffPending()">Дифф с файлом</button>
+      <button class="btn tiny pull" onclick="importPending()">Импортировать</button>
+      <button class="btn tiny ghost" onclick="clearPending()" aria-label="Убрать файл">✕</button>
+    </div>
+  </div>
+  <input type="file" id="file" accept=".ccsync" hidden>
+</section>
+
+<section>
+  <div class="sec-label">обслуживание</div>
+  <div class="row">
+    <button class="btn tiny" onclick="backupsFlow()">Бэкапы и откат</button>
+    <button class="btn tiny" onclick="autosyncFlow()" id="autoBtn">Авто-синк</button>
+    <button class="btn tiny" onclick="run('doctor')">Doctor</button>
+    <button class="btn tiny" onclick="updateFlow()" id="updBtn">Обновить ccsync</button>
+  </div>
+</section>
+
+<section>
+  <div class="sec-label">конфигурация</div>
+  <div class="grid">
+    <div class="card"><h3>Агенты <span id="nAgents"></span></h3><ul id="agents"></ul></div>
+    <div class="card"><h3>Скиллы <span id="nSkills"></span></h3><ul id="skills"></ul></div>
+    <div class="card"><h3>Команды <span id="nCommands"></span></h3><ul id="commands"></ul></div>
+    <div class="card"><h3>MCP <span id="nMcp"></span></h3><ul id="mcp"></ul></div>
+    <div class="card"><h3>Файлы</h3><ul id="files"></ul></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-label">лог</div>
+  <div id="log"></div>
+</section>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -120,25 +232,41 @@ function busy(on) { document.querySelectorAll('button').forEach(b => b.disabled 
 
 async function refresh() {
   const s = await (await fetch('/api/state')).json();
-  $('machine').textContent = `v${s.version} · ${s.hostname} · ${s.platform} · ${s.home}`;
-  const pill = $('repoPill');
+  $('ver').textContent = 'v' + s.version;
+  $('machine').textContent = s.home;
+  $('hostTitle').textContent = s.hostname;
+  $('hostSub').textContent = s.platform + ' · ' + (s.autosync ? 'авто-синк включён' : 'авто-синк выключен');
+  $('counts').innerHTML =
+    `<span>агенты <b>${s.agents.length}</b></span><span>скиллы <b>${s.skills.length}</b></span>` +
+    `<span>команды <b>${s.commands.length}</b></span><span>mcp <b>${s.mcp.length}</b></span>`;
+
   if (s.repo) {
-    pill.className = 'pill ok';
-    pill.textContent = s.repo.remote ? s.repo.remote.replace(/^.*[:/]([^/]+\/[^/]+?)(\.git)?$/, '$1') : 'локальный репо';
-    pill.title = (s.repo.lastCommit || '') + '\n' + s.repo.dir;
-    $('initBtn').textContent = 'Git: настроен';
+    $('repoTitle').textContent = s.repo.remote
+      ? s.repo.remote.replace(/^.*[:/]([^/]+\/[^/]+?)(\.git)?$/, '$1')
+      : 'локальный (без remote)';
+    $('repoTitle').title = s.repo.dir;
+    const sub = $('repoSub');
+    sub.className = 'sub ok';
+    sub.textContent = s.repo.lastCommit || 'коммитов ещё нет';
+    $('repoActions').innerHTML = '';
   } else {
-    pill.className = 'pill warn';
-    pill.textContent = 'git не настроен';
+    $('repoTitle').textContent = 'не настроен';
+    const sub = $('repoSub');
+    sub.className = 'sub warn';
+    sub.textContent = 'push и pull недоступны';
+    $('repoActions').innerHTML = '<button class="btn tiny" onclick="initFlow()">Настроить git</button>';
   }
   $('autoBtn').textContent = s.autosync ? 'Авто-синк: вкл' : 'Авто-синк';
+
   const fill = (id, arr) => {
-    $(id).innerHTML = arr.length ? arr.map(a => `<li>· ${a}</li>`).join('') : '<li class="empty">пусто</li>';
-    $('n' + id[0].toUpperCase() + id.slice(1)).textContent = arr.length ? `· ${arr.length}` : '';
+    $(id).innerHTML = arr.length
+      ? arr.map(a => `<li class="on">${a}</li>`).join('')
+      : '<li class="empty">пусто</li>';
+    $('n' + id[0].toUpperCase() + id.slice(1)).textContent = arr.length || '';
   };
   fill('agents', s.agents); fill('skills', s.skills); fill('commands', s.commands); fill('mcp', s.mcp);
   $('files').innerHTML = Object.entries(s.files)
-    .map(([f, ok]) => `<li class="${ok ? '' : 'off'}">${ok ? '✓' : '—'} ${f}</li>`).join('');
+    .map(([f, ok]) => `<li class="${ok ? 'on' : 'off'}">${ok ? '✓' : '—'} ${f}</li>`).join('');
 }
 
 async function run(cmd, message) {
@@ -202,8 +330,22 @@ async function exportFlow() {
     a.download = name;
     a.click();
     URL.revokeObjectURL(a.href);
-    logOut(`Архив скачан: ${name}${enc ? ' 🔒' : ''}`);
+    logOut(`Архив скачан: ${name}${enc ? ' (зашифрован)' : ''}`);
   } finally { busy(false); }
+}
+
+async function updateFlow() {
+  if (!confirm('Проверить и установить обновление ccsync?')) return;
+  busy(true);
+  try {
+    const r = await (await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'update' }),
+    })).json();
+    logOut(r.output + (/Обновлено/.test(r.output)
+      ? '\n\n⚠ Панель ещё работает на старой версии — перезапусти: ccsync ui'
+      : ''));
+  } finally { busy(false); refresh(); }
 }
 
 async function autosyncFlow() {
@@ -221,30 +363,20 @@ async function autosyncFlow() {
   refresh();
 }
 
-async function updateFlow() {
-  if (!confirm('Проверить и установить обновление ccsync?')) return;
-  busy(true);
-  try {
-    const r = await (await fetch('/api/run', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cmd: 'update' }),
-    })).json();
-    logOut(r.output + (/Обновлено/.test(r.output)
-      ? '\n\n⚠ Панель ещё работает на старой версии — перезапусти: ccsync ui'
-      : ''));
-  } finally { busy(false); refresh(); }
-}
-
 async function backupsFlow() {
   const list = await (await fetch('/api/backups')).json();
-  if (!list.length) { logOut('Бэкапов пока нет — они создаются автоматически при import/pull.'); return; }
-  logOut('Бэкапы:\n' + list.map((b, i) => `  ${i + 1}. ${b.time} — ${b.files.length} файл(ов)\n` +
-    b.files.map(f => `       ${f}`).join('\n')).join('\n'));
+  if (!list.length) { logOut('Бэкапов пока нет — они создаются автоматически при импорте и pull.'); return; }
+  logOut('Бэкапы:\n' + list.map((b, i) => {
+    const added = b.manifest ? b.manifest.added.length : 0;
+    return `  ${i + 1}. ${b.time} — перезаписано: ${b.files.length}, добавлено: ${added}\n` +
+      b.files.map(f => `       ~ ${f}`).join('\n') +
+      (b.manifest && added ? '\n' + b.manifest.added.map(f => `       + ${f}`).join('\n') : '');
+  }).join('\n'));
   const n = prompt('Номер бэкапа для восстановления (отмена — пусто):');
   if (!n) return;
   const b = list[parseInt(n, 10) - 1];
   if (!b) { alert('Нет такого номера'); return; }
-  if (!confirm(`Откатить конфигурацию к состоянию ${b.time}?\nБудут восстановлены: ${b.files.join(', ')}`)) return;
+  if (!confirm(`Откатить конфигурацию к состоянию ${b.time}?`)) return;
   busy(true);
   try {
     const r = await (await fetch('/api/restore', {
@@ -262,7 +394,7 @@ function setPending(file) {
   if (!file) return;
   file.arrayBuffer().then((buf) => {
     pending = { name: file.name, buf };
-    $('fileName').textContent = '📦 ' + file.name;
+    $('fileName').textContent = file.name;
     $('fileBar').style.display = 'flex';
     $('drop').style.display = 'none';
   });
@@ -270,7 +402,7 @@ function setPending(file) {
 function clearPending() {
   pending = null;
   $('fileBar').style.display = 'none';
-  $('drop').style.display = 'block';
+  $('drop').style.display = 'flex';
   $('file').value = '';
 }
 
@@ -312,6 +444,7 @@ async function importPending() {
 
 const drop = $('drop');
 drop.onclick = () => $('file').click();
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
 $('file').onchange = (e) => setPending(e.target.files[0]);
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
