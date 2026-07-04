@@ -154,6 +154,14 @@ check('diff после pull — чисто', r.code === 0 && /Отличий о�
 r = run(b, ['pull']);
 check('pull после status работает', r.code === 0, r.out);
 
+// эмуляция Windows: autocrlf=true + CRLF-checkout не должны давать фантомных "M"
+const bRepo = path.join(b, '.claude-sync');
+spawnSync('git', ['-C', bRepo, 'config', 'core.autocrlf', 'true'], { encoding: 'utf8' });
+fs.rmSync(path.join(bRepo, 'claude'), { recursive: true, force: true });
+spawnSync('git', ['-C', bRepo, 'checkout', '-f', 'HEAD'], { encoding: 'utf8' });
+r = run(b, ['status']);
+check('status с autocrlf (эмуляция Windows) — совпадает', r.code === 0 && /совпадает/.test(r.out), r.out);
+
 // ── backups / restore ────────────────────────────────────────────────────
 console.log('\n== backups/restore ==');
 const marker = readJson(path.join(b, '.claude', 'settings.json'));
