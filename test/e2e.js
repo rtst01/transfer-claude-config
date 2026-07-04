@@ -162,19 +162,35 @@ spawnSync('git', ['-C', bRepo, 'checkout', '-f', 'HEAD'], { encoding: 'utf8' });
 r = run(b, ['status']);
 check('status с autocrlf (эмуляция Windows) — совпадает', r.code === 0 && /совпадает/.test(r.out), r.out);
 
-// ── backups / restore ────────────────────────────────────────────────────
+// ── backups / строгий restore ────────────────────────────────────────────
 console.log('\n== backups/restore ==');
 const marker = readJson(path.join(b, '.claude', 'settings.json'));
 marker.theme = 'MARKER_OLD';
 writeJson(path.join(b, '.claude', 'settings.json'), marker);
+// файл, которого не было на B, — импорт его добавит, строгий откат должен удалить
+fs.rmSync(path.join(b, '.claude', 'CLAUDE.md'), { force: true });
 r = run(b, ['import', plain, '--overwrite']);
 check('import --overwrite ok', r.code === 0, r.out);
 check('маркер затёрт', readJson(path.join(b, '.claude', 'settings.json')).theme === 'dark');
+check('CLAUDE.md добавлен импортом', fs.existsSync(path.join(b, '.claude', 'CLAUDE.md')));
 r = run(b, ['backups']);
 check('backups список не пуст', /settings\.json/.test(r.out), r.out);
+check('манифест показывает добавленные', /\+ CLAUDE\.md/.test(r.out), r.out);
+r = run(b, ['restore', '--dry-run']);
+check('restore dry-run показывает удаление', /удалить.*CLAUDE\.md/.test(r.out), r.out);
 r = run(b, ['restore']);
 check('restore ok', r.code === 0, r.out);
 check('маркер вернулся', readJson(path.join(b, '.claude', 'settings.json')).theme === 'MARKER_OLD');
+check('строгий откат: добавленный файл удалён', !fs.existsSync(path.join(b, '.claude', 'CLAUDE.md')));
+
+// ── log / version / doctor ───────────────────────────────────────────────
+console.log('\n== log/version/doctor ==');
+r = run(b, ['log']);
+check('log показывает историю', r.code === 0 && /sync from/.test(r.out), r.out);
+r = run(b, ['version']);
+check('version ok', r.code === 0 && /ccsync v\d+\.\d+\.\d+/.test(r.out), r.out);
+r = run(b, ['doctor']);
+check('doctor отрабатывает', r.code === 0 && /git установлен/.test(r.out), r.out);
 
 // ── autosync ─────────────────────────────────────────────────────────────
 console.log('\n== autosync ==');

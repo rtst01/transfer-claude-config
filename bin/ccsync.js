@@ -33,7 +33,13 @@ agents/, skills/, commands/, mcpServers (из ~/.claude.json)
 
 Бэкапы (создаются автоматически при import/pull):
   ccsync backups                 список бэкапов с содержимым
-  ccsync restore [N|имя]         откатить последний (или выбранный) бэкап
+  ccsync restore [N|имя]         строгий откат: вернуть перезаписанное,
+                                 удалить добавленное импортом (--dry-run — план)
+
+Сервис:
+  ccsync log [N]                 история синхронизаций (кто/когда/что пушил)
+  ccsync doctor                  диагностика окружения с рецептами
+  ccsync update                  обновить ccsync до последней версии
 
 Интерфейсы:
   ccsync                         интерактивное меню в терминале
@@ -94,6 +100,25 @@ async function main() {
 
     case 'status':
       gitSync.status();
+      await require('../lib/update').notifyIfOutdated();
+      break;
+
+    case 'log':
+      gitSync.logCmd(args[0] ? Number(args[0]) : 15);
+      break;
+
+    case 'doctor':
+      await require('../lib/doctor').doctor();
+      break;
+
+    case 'update':
+      await require('../lib/update').selfUpdate();
+      break;
+
+    case 'version':
+    case '--version':
+    case '-v':
+      console.log('ccsync v' + require('../lib/update').VERSION);
       break;
 
     case 'diff':

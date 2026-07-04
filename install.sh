@@ -28,10 +28,12 @@ if [ -z "$INSTALL_DIR" ]; then
   mkdir -p "$INSTALL_DIR"
 fi
 
-echo "Скачиваю $ASSET…"
+echo "Скачиваю $ASSET ..."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-curl -fSL --progress-bar "$URL" -o "$TMP/$ASSET"
+# прогресс-бар только в интерактивном терминале
+if [ -t 1 ]; then PROGRESS="--progress-bar"; else PROGRESS="-s"; fi
+curl -fSL $PROGRESS "$URL" -o "$TMP/$ASSET"
 tar -xzf "$TMP/$ASSET" -C "$TMP"
 mv "$TMP/ccsync" "$INSTALL_DIR/ccsync"
 chmod +x "$INSTALL_DIR/ccsync"
