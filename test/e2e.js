@@ -48,6 +48,24 @@ function writeJson(file, obj) {
 
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 
+// ── юнит: нормализация путей (Windows-кейсы гоняем на любой ОС) ──────────
+console.log('== normalizeHome ==');
+const { normalizeHome } = require('../lib/util');
+check(
+  'win-путь целиком',
+  normalizeHome('C:\\Users\\x\\.claude\\statusline.sh', 'C:\\Users\\x') === '~/.claude/statusline.sh'
+);
+check(
+  'win-путь внутри команды',
+  normalizeHome('bash C:\\Users\\x\\.claude\\run.sh --flag', 'C:\\Users\\x') === 'bash ~/.claude/run.sh --flag'
+);
+check(
+  'смешанные слэши',
+  normalizeHome('C:/Users/x/.claude/a.md', 'C:\\Users\\x') === '~/.claude/a.md'
+);
+check('unix-путь', normalizeHome('/Users/y/.claude/a.md', '/Users/y') === '~/.claude/a.md');
+check('чужой путь не тронут', normalizeHome('/opt/tool/bin', '/Users/y') === '/opt/tool/bin');
+
 // ── фикстура: исходная машина ────────────────────────────────────────────
 const src = mkHome('src');
 writeJson(path.join(src, '.claude', 'settings.json'), {
@@ -131,7 +149,7 @@ check('пути на B адаптированы', JSON.stringify(bSettings).incl
 r = run(b, ['status']);
 check('status после pull — совпадает', r.code === 0 && /совпадает/.test(r.out), r.out);
 r = run(b, ['diff']);
-check('diff после pull — чисто', r.code === 0 && /Отличий .* нет|^$/m.test(r.out), r.out);
+check('diff после pull — чисто', r.code === 0 && /Отличий от репозитория нет/.test(r.out), r.out);
 // повторный pull после status (worktree должен быть чистым)
 r = run(b, ['pull']);
 check('pull после status работает', r.code === 0, r.out);
