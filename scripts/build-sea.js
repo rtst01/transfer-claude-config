@@ -80,5 +80,19 @@ execSync(`"${out}" export "${archive}"`, {
 if (!fs.existsSync(archive)) throw new Error('smoke: export не создал архив');
 fs.rmSync(fakeHome, { recursive: true, force: true });
 
-const mb = (fs.statSync(out).size / 1024 / 1024).toFixed(1);
-console.log(`\n✓ Готово: dist/${outName} (${mb} MB)`);
+// 6. архив: tar.gz сохраняет execute-бит (Mac/Linux), zip — для Windows.
+// Внутри архива бинарь уже называется ccsync — распаковал и пользуешься.
+const finalName = IS_WIN ? 'ccsync.exe' : 'ccsync';
+fs.renameSync(out, path.join(DIST, finalName));
+if (IS_WIN) {
+  run(
+    `powershell -NoProfile -Command "Compress-Archive -Path dist/${finalName} -DestinationPath dist/${outName.replace('.exe', '')}.zip -Force"`
+  );
+} else {
+  run(`tar -czf "dist/${outName}.tar.gz" -C dist ${finalName}`);
+}
+fs.renameSync(path.join(DIST, finalName), out); // возвращаем имя с платформой (артефакт CI)
+
+const pkgName = IS_WIN ? `${outName.replace('.exe', '')}.zip` : `${outName}.tar.gz`;
+const mb = (n) => (fs.statSync(path.join(DIST, n)).size / 1024 / 1024).toFixed(1);
+console.log(`\n✓ Готово: dist/${outName} (${mb(outName)} MB), dist/${pkgName} (${mb(pkgName)} MB)`);

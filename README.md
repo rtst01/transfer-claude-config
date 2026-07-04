@@ -24,23 +24,25 @@ keybindings, statusline и список MCP-серверов.
 
 ### Вариант 1: готовый бинарь (Node.js не нужен)
 
-Скачай под свою систему со страницы
-[Releases](https://github.com/rtst01/transfer-claude-config/releases):
-`ccsync-windows-x64.exe`, `ccsync-macos-arm64`, `ccsync-macos-x64`,
-`ccsync-linux-x64` (+ SHA256SUMS.txt для проверки).
+Одна команда — скачает свежий релиз под твою ОС/архитектуру, распакует,
+положит в PATH и снимет карантин (macOS):
 
 ```bash
-# macOS / Linux: положить в PATH под именем ccsync
-chmod +x ccsync-macos-arm64
-sudo mv ccsync-macos-arm64 /usr/local/bin/ccsync
-# macOS может заблокировать неподписанный бинарь при первом запуске:
-xattr -d com.apple.quarantine /usr/local/bin/ccsync
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/rtst01/transfer-claude-config/main/install.sh | sh
 ```
 
 ```powershell
-# Windows: переименовать и положить в папку из PATH
-ren ccsync-windows-x64.exe ccsync.exe
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/rtst01/transfer-claude-config/main/install.ps1 | iex
 ```
+
+Вручную: на странице [Releases](https://github.com/rtst01/transfer-claude-config/releases)
+лежат `ccsync-macos-arm64.tar.gz`, `ccsync-macos-x64.tar.gz`,
+`ccsync-linux-x64.tar.gz`, `ccsync-windows-x64.zip` (+ SHA256SUMS.txt).
+Внутри архива бинарь уже называется `ccsync` с выставленным execute-битом —
+распаковать и положить в PATH. Это консольная программа: запускается из
+терминала, двойной клик в Finder/Explorer не сработает.
 
 Имя `ccsync` в PATH важно для авто-синхронизации — хуки вызывают именно его.
 
