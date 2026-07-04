@@ -83,6 +83,9 @@
   <button onclick="initFlow()" id="initBtn">Настроить git</button>
   <button onclick="backupsFlow()">⟲ Бэкапы</button>
   <button onclick="autosyncFlow()" id="autoBtn">Авто-синк</button>
+  <button onclick="run('log')">История</button>
+  <button onclick="run('doctor')">Doctor</button>
+  <button onclick="updateFlow()" id="updBtn">Обновить</button>
 </div>
 
 <div id="drop">Перетащи сюда файл <b>.ccsync</b> (или кликни) — для диффа или импорта</div>
@@ -117,7 +120,7 @@ function busy(on) { document.querySelectorAll('button').forEach(b => b.disabled 
 
 async function refresh() {
   const s = await (await fetch('/api/state')).json();
-  $('machine').textContent = `${s.hostname} · ${s.platform} · ${s.home}`;
+  $('machine').textContent = `v${s.version} · ${s.hostname} · ${s.platform} · ${s.home}`;
   const pill = $('repoPill');
   if (s.repo) {
     pill.className = 'pill ok';
@@ -216,6 +219,20 @@ async function autosyncFlow() {
   })).json();
   logOut(r.output);
   refresh();
+}
+
+async function updateFlow() {
+  if (!confirm('Проверить и установить обновление ccsync?')) return;
+  busy(true);
+  try {
+    const r = await (await fetch('/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'update' }),
+    })).json();
+    logOut(r.output + (/Обновлено/.test(r.output)
+      ? '\n\n⚠ Панель ещё работает на старой версии — перезапусти: ccsync ui'
+      : ''));
+  } finally { busy(false); refresh(); }
 }
 
 async function backupsFlow() {
