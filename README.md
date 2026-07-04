@@ -65,6 +65,14 @@ ccsync import файл.ccsync --dry-run   # посмотреть план
 ccsync import файл.ccsync             # применить (с бэкапом)
 ```
 
+Зашифрованный архив (можно слать через мессенджер):
+
+```bash
+ccsync export --encrypt              # спросит пароль, AES-256-GCM
+ccsync import файл.ccsync            # спросит пароль сам
+CCSYNC_PASSPHRASE=… ccsync import …  # или через переменную/--password=…
+```
+
 ## Способ 2: git (постоянная синхронизация)
 
 Один раз: создай **приватный** репозиторий на GitHub. Затем на каждой машине:
@@ -77,11 +85,36 @@ ccsync init git@github.com:you/claude-config.git
 
 ```bash
 ccsync push        # выгрузить локальный конфиг в репо (авто-коммит + push)
-ccsync pull        # забрать из репо и применить (авто-бэкап)
-ccsync status      # что отличается от репо
+ccsync pull        # забрать из репо и применить (merge + авто-бэкап)
+ccsync status      # краткие отличия от репо
+ccsync diff        # подробный дифф (или ccsync diff файл.ccsync — против архива)
 ```
 
 `push` сам делает `pull --rebase` перед отправкой, пустые изменения не коммитит.
+
+### Авто-синхронизация
+
+```bash
+ccsync autosync on      # хуки Claude Code: pull при старте сессии,
+                        # push при завершении. Журнал: ~/.claude/ccsync.log
+ccsync autosync status  # состояние + последние записи журнала
+ccsync autosync off
+```
+
+Pull троттлится (не чаще раза в 30 минут), хуки всегда завершаются успешно и
+ничего не выводят — сессия Claude Code не пострадает, даже если сеть недоступна.
+Хуки уезжают вместе с settings.json, поэтому на других машинах тоже нужен
+установленный `ccsync`.
+
+### Умный merge
+
+При `pull`/`import` настройки не затираются, а сливаются:
+
+- `permissions.allow/deny/ask` — объединение списков (локальные правила не теряются);
+- `env`, `enabledPlugins` — локальные ключи сохраняются, по общим побеждает входящее;
+- остальное (theme, model, statusLine, hooks) — входящее как источник истины.
+
+Нужна точная копия без merge — `ccsync pull --overwrite` / `ccsync import --overwrite`.
 
 ## Кроссплатформенность
 
@@ -128,12 +161,16 @@ ccsync restore --dry-run    # посмотреть, что будет восст
 bin/ccsync.js    CLI
 lib/config.js    манифест синхронизации, пути, детект ОС/bash
 lib/collect.js   сбор конфига + нормализация путей в ~/... + скан секретов
-lib/bundle.js    формат .ccsync (gzip-JSON с сигнатурой)
-lib/apply.js     умное применение: адаптация путей, совместимость, бэкапы
-lib/git.js       init/push/pull/status через git
+lib/bundle.js    формат .ccsync (gzip-JSON), шифрование AES-256-GCM
+lib/apply.js     умное применение: адаптация путей, merge, бэкапы
+lib/diff.js      содержательный дифф архива против локальной конфигурации
+lib/git.js       init/push/pull/status/diff через git
+lib/autosync.js  хуки Claude Code (autopull/autopush), журнал, троттлинг
+lib/backups.js   список бэкапов и откат
 lib/tui.js       интерактивное меню в терминале
 lib/webui.js     локальный http-сервер веб-панели (whitelist команд, 127.0.0.1)
 lib/panel.html   страница веб-панели
+test/e2e.js      сквозной тест (npm test), гоняется в CI на win/mac/linux
 ```
 
 Служебный конфиг инструмента: `~/.claude/ccsync.json` (не синхронизируется).

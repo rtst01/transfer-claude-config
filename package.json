@@ -5,6 +5,9 @@
   "bin": {
     "ccsync": "bin/ccsync.js"
   },
+  "scripts": {
+    "test": "node test/e2e.js"
+  },
   "files": [
     "bin",
     "lib",

@@ -78,9 +78,11 @@
   <button class="primary" onclick="run('push', prompt('Сообщение коммита (пусто — авто):') || undefined)">⇡ Push</button>
   <button onclick="pullFlow()">⇣ Pull</button>
   <button onclick="run('status')">Статус</button>
-  <button onclick="location.href='/api/export'">⭳ Экспорт архива</button>
+  <button onclick="run('diff')">Дифф</button>
+  <button onclick="exportFlow()">⭳ Экспорт</button>
   <button onclick="initFlow()" id="initBtn">Настроить git</button>
   <button onclick="backupsFlow()">⟲ Бэкапы</button>
+  <button onclick="autosyncFlow()" id="autoBtn">Авто-синк</button>
 </div>
 
 <div id="drop">Перетащи сюда файл <b>.ccsync</b> для импорта (или кликни)</div>
@@ -120,6 +122,7 @@ async function refresh() {
     pill.className = 'pill warn';
     pill.textContent = 'git не настроен';
   }
+  $('autoBtn').textContent = s.autosync ? 'Авто-синк: вкл' : 'Авто-синк';
   const fill = (id, arr) => {
     $(id).innerHTML = arr.length ? arr.map(a => `<li>· ${a}</li>`).join('') : '<li class="empty">пусто</li>';
     $('n' + id[0].toUpperCase() + id.slice(1)).textContent = arr.length ? `· ${arr.length}` : '';
@@ -171,6 +174,44 @@ async function initFlow() {
   } finally { busy(false); refresh(); }
 }
 
+async function exportFlow() {
+  const enc = confirm('Зашифровать архив паролем? (OK — да, Отмена — без шифрования)');
+  const headers = {};
+  if (enc) {
+    const pass = prompt('Пароль архива:');
+    if (!pass) return;
+    headers['x-passphrase'] = pass;
+  }
+  busy(true);
+  try {
+    const resp = await fetch('/api/export', { headers });
+    if (!resp.ok) { logOut('Ошибка экспорта:\n' + await resp.text()); return; }
+    const name = (resp.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'config.ccsync';
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    logOut(`Архив скачан: ${name}${enc ? ' 🔒' : ''}`);
+  } finally { busy(false); }
+}
+
+async function autosyncFlow() {
+  const st = await (await fetch('/api/run', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: 'autosync-status' }),
+  })).json();
+  logOut(st.output);
+  const on = confirm('Включить авто-синхронизацию? (OK — включить, Отмена — выключить)');
+  const r = await (await fetch('/api/run', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: on ? 'autosync-on' : 'autosync-off' }),
+  })).json();
+  logOut(r.output);
+  refresh();
+}
+
 async function backupsFlow() {
   const list = await (await fetch('/api/backups')).json();
   if (!list.length) { logOut('Бэкапов пока нет — они создаются автоматически при import/pull.'); return; }
@@ -196,10 +237,18 @@ async function importFile(file) {
   busy(true);
   try {
     const buf = await file.arrayBuffer();
-    const dry = await (await fetch('/api/import?dry=1', { method: 'POST', body: buf })).json();
+    const headers = {};
+    let dry = await (await fetch('/api/import?dry=1', { method: 'POST', headers, body: buf })).json();
+    // зашифрованный архив — спрашиваем пароль и повторяем
+    if (dry.code !== 0 && /зашифрован|пароль|CCSYNC_PASSPHRASE/i.test(dry.output)) {
+      const pass = prompt('Архив зашифрован. Пароль:');
+      if (!pass) { logOut('Импорт отменён'); return; }
+      headers['x-passphrase'] = pass;
+      dry = await (await fetch('/api/import?dry=1', { method: 'POST', headers, body: buf })).json();
+    }
     logOut('── DRY-RUN ──\n' + dry.output);
     if (dry.code === 0 && confirm('Применить архив? (бэкап будет сделан автоматически)')) {
-      const r = await (await fetch('/api/import', { method: 'POST', body: buf })).json();
+      const r = await (await fetch('/api/import', { method: 'POST', headers, body: buf })).json();
       logOut(r.output);
     }
   } finally { busy(false); refresh(); }

@@ -15,41 +15,47 @@ agents/, skills/, commands/, mcpServers (из ~/.claude.json)
 
 Через архив (разовый перенос):
   ccsync export [файл]           создать архив .ccsync с конфигурацией
+    --encrypt                    зашифровать паролем (AES-256-GCM)
   ccsync import <файл>           применить архив на этой машине (с бэкапом)
-  ccsync import <файл> --dry-run посмотреть план без изменений
+    --dry-run                    посмотреть план без изменений
+    --overwrite                  перезаписать настройки без merge с локальными
+    --password=…                 пароль зашифрованного архива (или CCSYNC_PASSPHRASE)
 
 Через git (постоянная синхронизация):
   ccsync init [url]              настроить синхронизацию (клонировать приватный репо)
   ccsync push [-m "сообщение"]   выгрузить конфиг в репо и запушить
-  ccsync pull [--dry-run]        забрать из репо и применить (с бэкапом)
-  ccsync status                  показать отличия локального конфига от репо
+  ccsync pull [--dry-run]        забрать из репо и применить (merge + бэкап)
+  ccsync status                  краткие отличия локального конфига от репо
+  ccsync diff [файл.ccsync]      подробный дифф против репо или архива
+
+Авто-синхронизация (хуки Claude Code):
+  ccsync autosync on|off|status  pull при старте сессии, push при завершении
 
 Бэкапы (создаются автоматически при import/pull):
   ccsync backups                 список бэкапов с содержимым
   ccsync restore [N|имя]         откатить последний (или выбранный) бэкап
-  ccsync restore --dry-run       посмотреть, что будет восстановлено
 
 Интерфейсы:
   ccsync                         интерактивное меню в терминале
   ccsync ui                      веб-панель в браузере (localhost)
-
-При применении на другой ОС автоматически:
-  • пути /Users/... ⇄ C:\\Users\\... переводятся под текущую систему
-  • bash-артефакты (statusline.sh) не ставятся на Windows без Git Bash
-  • хуки с unix-командами помечаются предупреждением
-  • перед изменениями делается бэкап в ~/.claude/backups/
 `;
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2);
   const cmd = argv[0];
   const args = argv.slice(1).filter((a) => !a.startsWith('--'));
-  const flags = new Set(argv.filter((a) => a.startsWith('--')));
+  const flags = new Set(argv.filter((a) => a.startsWith('--')).map((a) => a.split('=')[0]));
+  const flagValue = (name) => {
+    const f = argv.find((a) => a.startsWith(name + '='));
+    return f ? f.slice(name.length + 1) : undefined;
+  };
   const dryRun = flags.has('--dry-run');
+  const overwrite = flags.has('--overwrite');
+  const password = flagValue('--password');
 
   switch (cmd) {
     case 'export':
-      exportBundle(args[0]);
+      await exportBundle(args[0], { encrypt: flags.has('--encrypt'), password });
       break;
 
     case 'import': {
@@ -57,13 +63,12 @@ function main() {
         log.err('Укажи файл: ccsync import <файл.ccsync>');
         process.exit(1);
       }
-      const bundle = readBundle(args[0]);
+      const bundle = await readBundle(args[0], { password });
       log.info(
         `Архив от ${bundle.meta.hostname} (${bundle.meta.platform}), ` +
           `создан ${bundle.meta.createdAt.slice(0, 16).replace('T', ' ')}`
       );
-      const report = apply(bundle, { dryRun });
-      printReport(report, dryRun);
+      printReport(apply(bundle, { dryRun, overwrite }), dryRun);
       break;
     }
 
@@ -73,8 +78,7 @@ function main() {
 
     case 'push': {
       const mIdx = argv.indexOf('-m');
-      const msg = mIdx !== -1 ? argv[mIdx + 1] : undefined;
-      gitSync.push(msg);
+      gitSync.push(mIdx !== -1 ? argv[mIdx + 1] : undefined);
       break;
     }
 
@@ -84,13 +88,36 @@ function main() {
         `Конфигурация от ${bundle.meta.hostname} (${bundle.meta.platform}), ` +
           `обновлена ${String(bundle.meta.createdAt).slice(0, 16).replace('T', ' ')}`
       );
-      const report = apply(bundle, { dryRun });
-      printReport(report, dryRun);
+      printReport(apply(bundle, { dryRun, overwrite }), dryRun);
       break;
     }
 
     case 'status':
       gitSync.status();
+      break;
+
+    case 'diff':
+      if (args[0]) {
+        require('../lib/diff').diffBundle(await readBundle(args[0], { password }));
+      } else {
+        gitSync.diffRepo();
+      }
+      break;
+
+    case 'autosync': {
+      const auto = require('../lib/autosync');
+      if (args[0] === 'on') auto.enable();
+      else if (args[0] === 'off') auto.disable();
+      else auto.status();
+      break;
+    }
+
+    // скрытые команды для хуков Claude Code: тихие, всегда exit 0
+    case 'autopull':
+      require('../lib/autosync').autopull();
+      break;
+    case 'autopush':
+      require('../lib/autosync').autopush();
       break;
 
     case 'backups':
@@ -128,4 +155,7 @@ function main() {
   }
 }
 
-main();
+main().catch((e) => {
+  log.err(e.message);
+  process.exit(1);
+});
