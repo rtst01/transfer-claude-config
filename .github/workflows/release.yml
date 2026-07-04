@@ -15,15 +15,15 @@ jobs:
         # macos-13 = x64, macos-latest = arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - name: e2e tests
         run: node test/e2e.js
       - name: Build SEA binary
         run: node scripts/build-sea.js
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: bin-${{ matrix.os }}
           path: dist/ccsync-*
@@ -35,7 +35,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           merge-multiple: true
           path: dist
