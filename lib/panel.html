@@ -250,6 +250,7 @@
     <div class="card"><h3>Скиллы <span id="nSkills"></span></h3><ul id="skills"></ul></div>
     <div class="card"><h3>Команды <span id="nCommands"></span></h3><ul id="commands"></ul></div>
     <div class="card"><h3>MCP <span id="nMcp"></span></h3><ul id="mcp"></ul></div>
+    <div class="card"><h3>Плагины <span id="nPlugins"></span></h3><ul id="plugins"></ul></div>
     <div class="card"><h3>Файлы</h3><ul id="files"></ul></div>
   </div>
 </section>
@@ -340,7 +341,8 @@ async function refresh() {
   $('hostSub').textContent = s.platform + ' · ' + (s.autosync ? 'авто-синк включён' : 'авто-синк выключен');
   $('counts').innerHTML =
     `<span>агенты <b>${s.agents.length}</b></span><span>скиллы <b>${s.skills.length}</b></span>` +
-    `<span>команды <b>${s.commands.length}</b></span><span>mcp <b>${s.mcp.length}</b></span>`;
+    `<span>команды <b>${s.commands.length}</b></span><span>mcp <b>${s.mcp.length}</b></span>` +
+    `<span>плагины <b>${(s.plugins || []).length}</b></span>`;
 
   if (s.repo) {
     $('repoTitle').textContent = s.repo.remote
@@ -367,6 +369,8 @@ async function refresh() {
     $('n' + id[0].toUpperCase() + id.slice(1)).textContent = arr.length || '';
   };
   fill('agents', s.agents); fill('skills', s.skills); fill('commands', s.commands); fill('mcp', s.mcp);
+  // ключи "name@marketplace" — в карточке достаточно имени
+  fill('plugins', (s.plugins || []).map(p => p.split('@')[0]));
   $('files').innerHTML = Object.entries(s.files)
     .map(([f, ok]) => `<li class="${ok ? 'on' : 'off'}">${ok ? '✓' : '—'} ${f}</li>`).join('');
 }
