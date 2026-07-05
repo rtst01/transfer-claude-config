@@ -103,6 +103,23 @@ writeJson(path.join(src, '.claude', 'plugins', 'known_marketplaces.json'), {
     lastUpdated: '2026-01-01T00:00:00Z',
   },
 });
+// скилы: обычный каталог + скил-симлинк (частый случай на Windows — junction
+// от инсталляторов вроде find-skills; walkDir обязан идти по ссылке)
+fs.mkdirSync(path.join(src, '.claude', 'skills', 'plain-skill'), { recursive: true });
+fs.writeFileSync(path.join(src, '.claude', 'skills', 'plain-skill', 'SKILL.md'), '# plain\n');
+const linkTarget = path.join(ROOT, 'linked-skill-target');
+fs.mkdirSync(linkTarget, { recursive: true });
+fs.writeFileSync(path.join(linkTarget, 'SKILL.md'), '# linked\n');
+let symlinksOk = true;
+try {
+  fs.symlinkSync(linkTarget, path.join(src, '.claude', 'skills', 'linked-skill'),
+    process.platform === 'win32' ? 'junction' : 'dir');
+  // битая ссылка не должна ронять сбор
+  fs.symlinkSync(path.join(ROOT, 'no-such-dir'), path.join(src, '.claude', 'skills', 'broken-skill'),
+    process.platform === 'win32' ? 'junction' : 'dir');
+} catch {
+  symlinksOk = false; // нет прав на симлинки — кейс пропускаем
+}
 
 // ── export / import + адаптация путей и merge ────────────────────────────
 console.log('\n== export/import ==');
@@ -113,6 +130,18 @@ check('сигнатура CCSYNC1', fs.readFileSync(plain).subarray(0, 8).toStri
 
 // collect: список плагинов попал в бандл, локальные пути отброшены
 const srcBundle = readCcsync(plain);
+check('collect: обычный скил в бандле', 'skills/plain-skill/SKILL.md' in srcBundle.files);
+if (symlinksOk) {
+  check(
+    'collect: скил-симлинк разыменован и попал в бандл',
+    'skills/linked-skill/SKILL.md' in srcBundle.files,
+    Object.keys(srcBundle.files).filter((f) => f.startsWith('skills/')).join(', ')
+  );
+  check(
+    'collect: битая ссылка пропущена без ошибки',
+    !Object.keys(srcBundle.files).some((f) => f.includes('broken-skill'))
+  );
+}
 check(
   'collect: bundle.plugins содержит идентификатор',
   !!srcBundle.plugins && srcBundle.plugins.plugins.includes('commit-commands@claude-plugins-official'),
