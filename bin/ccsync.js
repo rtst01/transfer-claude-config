@@ -10,8 +10,9 @@ const HELP = `
 ccsync — синхронизация настроек Claude Code между машинами (Windows / macOS / Linux)
 
 Синхронизируется: settings.json, CLAUDE.md, keybindings.json, statusline.sh,
-agents/, skills/, commands/, mcpServers (из ~/.claude.json)
-Не трогается: settings.local.json, история, сессии, кэш, плагины
+agents/, skills/, commands/, mcpServers (из ~/.claude.json),
+список плагинов (восстанавливаются через claude CLI)
+Не трогается: settings.local.json, история, сессии, кэш, файлы плагинов
 
 Через архив (разовый перенос):
   ccsync export [файл]           создать архив .ccsync с конфигурацией

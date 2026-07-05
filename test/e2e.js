@@ -48,6 +48,10 @@ function writeJson(file, obj) {
 
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 
+// Распаковывает .ccsync (gzip-JSON, MAGIC CCSYNC1\n) для инспекции содержимого бандла.
+const readCcsync = (f) =>
+  JSON.parse(require('zlib').gunzipSync(fs.readFileSync(f).subarray('CCSYNC1\n'.length)).toString('utf8'));
+
 // ── юнит: нормализация путей (Windows-кейсы гоняем на любой ОС) ──────────
 console.log('== normalizeHome ==');
 const { normalizeHome } = require('../lib/util');
@@ -83,6 +87,22 @@ writeJson(path.join(src, '.claude.json'), {
   someHistory: ['not synced'],
   mcpServers: { ctx: { command: 'npx', args: ['-y', 'ctx-server', path.join(src, 'data')] } },
 });
+// плагины: переносим только идентификаторы, локальные пути должны быть отброшены
+writeJson(path.join(src, '.claude', 'plugins', 'installed_plugins.json'), {
+  version: 2,
+  plugins: {
+    'commit-commands@claude-plugins-official': [
+      { scope: 'user', installPath: path.join(src, '.claude', 'plugins', 'cache', 'commit'), version: '1.0.0' },
+    ],
+  },
+});
+writeJson(path.join(src, '.claude', 'plugins', 'known_marketplaces.json'), {
+  'claude-plugins-official': {
+    source: { source: 'github', repo: 'anthropics/claude-plugins-official' },
+    installLocation: path.join(src, '.claude', 'plugins', 'marketplaces', 'official'),
+    lastUpdated: '2026-01-01T00:00:00Z',
+  },
+});
 
 // ── export / import + адаптация путей и merge ────────────────────────────
 console.log('\n== export/import ==');
@@ -90,6 +110,21 @@ const plain = path.join(ROOT, 'plain.ccsync');
 let r = run(src, ['export', plain]);
 check('export ok', r.code === 0 && fs.existsSync(plain), r.out);
 check('сигнатура CCSYNC1', fs.readFileSync(plain).subarray(0, 8).toString() === 'CCSYNC1\n');
+
+// collect: список плагинов попал в бандл, локальные пути отброшены
+const srcBundle = readCcsync(plain);
+check(
+  'collect: bundle.plugins содержит идентификатор',
+  !!srcBundle.plugins && srcBundle.plugins.plugins.includes('commit-commands@claude-plugins-official'),
+  JSON.stringify(srcBundle.plugins)
+);
+check(
+  'collect: маркетплейс без локальных путей',
+  !!srcBundle.plugins &&
+    srcBundle.plugins.marketplaces['claude-plugins-official'].source.repo === 'anthropics/claude-plugins-official' &&
+    !/installLocation|installPath|lastUpdated/.test(JSON.stringify(srcBundle.plugins)),
+  JSON.stringify(srcBundle.plugins)
+);
 
 const a = mkHome('a');
 // локальные дополнения, которые merge обязан сохранить
@@ -100,8 +135,12 @@ writeJson(path.join(a, '.claude', 'settings.json'), {
 });
 r = run(a, ['import', plain, '--dry-run']);
 check('import --dry-run ok', r.code === 0 && /dry-run/i.test(r.out), r.out);
+check('import --dry-run показывает план плагинов', /плагины к установке/.test(r.out) && /plugin install commit-commands@claude-plugins-official/.test(r.out), r.out);
 r = run(a, ['import', plain]);
 check('import ok', r.code === 0, r.out);
+// боевой режим: гард CCSYNC_HOME не даёт выполнять claude — команды только для ручного запуска
+check('боевой import: гард CCSYNC_HOME не ставит плагины', /CCSYNC_HOME/.test(r.out), r.out);
+check('боевой import: побочных эффектов нет (installed_plugins.json не создан)', !fs.existsSync(path.join(a, '.claude', 'plugins', 'installed_plugins.json')), r.out);
 
 const aSettings = readJson(path.join(a, '.claude', 'settings.json'));
 check('пути адаптированы под новый home', JSON.stringify(aSettings).includes(a.replace(/\\/g, '\\\\')) || JSON.stringify(aSettings).includes(a));
