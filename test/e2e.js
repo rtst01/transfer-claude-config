@@ -181,6 +181,44 @@ check('входящая theme победила', aSettings.theme === 'dark');
 check('агент приехал', fs.existsSync(path.join(a, '.claude', 'agents', 'test-agent.md')));
 check('mcpServers смержены', !!readJson(path.join(a, '.claude.json')).mcpServers.ctx);
 
+// ── mcpServers при переносе между разными ОС ─────────────────────────────
+console.log('\n== кросс-платформенный merge mcpServers ==');
+const x = mkHome('x');
+writeJson(path.join(x, '.claude.json'), {
+  mcpServers: { keepme: { type: 'stdio', command: 'npx', args: ['-y', 'local-good-server'] } },
+});
+// бандл «с другой ОС»: одноимённый сервер, cmd-обёртка, windows-бинарь
+const otherPlatform = process.platform === 'win32' ? 'darwin' : 'win32';
+const crossBundle = {
+  meta: { version: 1, createdAt: '2026-01-01T00:00:00Z', platform: otherPlatform, hostname: 'other', home: otherPlatform === 'win32' ? 'C:\\Users\\o' : '/Users/o' },
+  files: {},
+  mcpServers: {
+    keepme: { type: 'stdio', command: 'cmd', args: ['/c', 'npx', 'foreign-version'] },
+    wrapped: { type: 'stdio', command: 'cmd', args: ['/c', 'npx', '-y', 'some-tool'], env: { LOCALAPPDATA: 'C:\\x', KEEP: '1' } },
+    binsrv: { type: 'stdio', command: 'C:\\tools\\srv-windows-x64.exe', args: [] },
+  },
+};
+const crossFile = path.join(ROOT, 'cross.ccsync');
+fs.writeFileSync(crossFile, Buffer.concat([
+  Buffer.from('CCSYNC1\n'),
+  require('zlib').gzipSync(Buffer.from(JSON.stringify(crossBundle), 'utf8')),
+]));
+r = run(x, ['import', crossFile]);
+check('кросс-импорт ok', r.code === 0, r.out);
+const xMcp = readJson(path.join(x, '.claude.json')).mcpServers;
+check('одноимённый сервер: локальное определение сохранено',
+  xMcp.keepme.command === 'npx' && xMcp.keepme.args.includes('local-good-server'), JSON.stringify(xMcp.keepme));
+if (process.platform !== 'win32') {
+  check('cmd-обёртка снята у нового сервера',
+    xMcp.wrapped.command === 'npx' && xMcp.wrapped.args[0] === '-y', JSON.stringify(xMcp.wrapped));
+  check('windows-env вычищен, остальной сохранён',
+    !('LOCALAPPDATA' in xMcp.wrapped.env) && xMcp.wrapped.env.KEEP === '1', JSON.stringify(xMcp.wrapped.env));
+  check('windows-бинарь пропущен с предупреждением',
+    !xMcp.binsrv && /windows-бинарь/.test(r.out), r.out);
+} else {
+  check('cmd-обёртка нового сервера сохранена на Windows', xMcp.wrapped.command === 'cmd', JSON.stringify(xMcp.wrapped));
+}
+
 // ── шифрование ───────────────────────────────────────────────────────────
 console.log('\n== шифрование ==');
 const enc = path.join(ROOT, 'enc.ccsync');
